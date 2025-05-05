@@ -24,13 +24,5 @@ export function handleReconnection(socket, password: string, onlineUsers: Map<st
     onlineUsers.set(socket.id, password);
 }
 
-export function saveState(state: MainStateType){
-    const stringifiedState = JSON.stringify(state);
-    Deno.writeTextFileSync("state.json", stringifiedState);
-  }
-  
-  export function loadState(): MainStateType{
-    const read = Deno.readFileSync("state.json");
-    return JSON.parse(new TextDecoder().decode(read));
-  }
+
   

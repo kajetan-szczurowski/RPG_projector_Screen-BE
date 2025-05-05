@@ -50,3 +50,17 @@ export type DeleteEntityRequestPayload = {
 }
 
 export type BarAttributeName = 'healthPoints' | 'magicPoints' | 'equipmentPoints'
+
+export type Clock = {
+  id: string;
+  label: string;
+  chunks: number;
+  completed: number;
+}
+
+export type GameState = {
+  clocks: Clock[],
+  allies: EntityType[]
+  foes: EntityType[]
+}
+
