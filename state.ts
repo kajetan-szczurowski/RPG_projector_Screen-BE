@@ -1,4 +1,4 @@
-import { GameState } from "./types";
+import { GameState } from "./types.ts";
 
 export function getInitiatedGameState(): MainState{
     const currentState = loadState();
@@ -19,10 +19,20 @@ export function setState(currentState: MainState, newGameState: GameState): Main
 
 export function undoState(currentState: MainState): MainState{
     console.log('undoing')
+    return performRedoOrUndo(currentState, 'undo');
+}
+
+export function redoState(currentState: MainState): MainState{
+    console.log('redoing');
+    return performRedoOrUndo(currentState, 'redo');
+}
+
+function performRedoOrUndo(currentState: MainState, operation: 'redo' | 'undo'): MainState{
+    const secondStack = operation === 'redo'? 'undo' : 'redo';
     const newState = {...currentState};
-    const popedValue = newState.undo.pop();
+    const popedValue = newState[operation].pop();
     if (!popedValue) return newState;
-    newState.redo.push({...popedValue});
+    newState[secondStack].push({...popedValue});
     newState.current = {...popedValue};
     return newState;
 }

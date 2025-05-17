@@ -1,7 +1,10 @@
 import * as uuid from "jsr:@std/uuid";
 import { EntityRequestData, EntityType, MainStateType, DeleteEntityRequestPayload, EditEntityRequestPayload } from "./types.ts";
-import {BarAttributeName, CharacterBar, ChangeEntityStateRequestPayload} from "./types.ts";
-import { isUserGM, getUserID, saveState } from "./system.ts";
+import {BarAttributeName, CharacterBar, ChangeEntityStateRequestPayload, GameState} from "./types.ts";
+import { isUserGM, getUserID } from "./system.ts";
+import { setState, MainState } from "./state.ts";
+
+//TODO: prepare some middleware to reduce code multiplication e.g. const newState = {...gameState.current};
 
 const MAIN_STATE_SOCKET_KEY = 'entities-state';
 const barsRequestMap: {[key: string]: BarAttributeName} = {
@@ -11,7 +14,7 @@ const barsRequestMap: {[key: string]: BarAttributeName} = {
 };
 
 
-export function handleEntities(socket, io, onlineUsers: Map<string, string>, gameState: MainStateType){
+export function handleEntities(socket, io, onlineUsers: Map<string, string>, gameState: MainState){
     socket.on('add-entity', newEntity => {handleNewEntity(getUserID(socket.id, onlineUsers), newEntity, gameState, io)});
     socket.on('delete-entity', payload => {handleEntityDeletion(getUserID(socket.id, onlineUsers), payload, gameState, io)});
     socket.on('entity-edit', payload => {handleEntityEdit(getUserID(socket.id, onlineUsers), payload, gameState, io)});
@@ -23,20 +26,20 @@ export function handleEntities(socket, io, onlineUsers: Map<string, string>, gam
 
 }
 
-function entityEditAfterWare(io, gameState:MainStateType){
-    io.emit(MAIN_STATE_SOCKET_KEY, gameState);
-    saveState(gameState);
+function entityEditAfterWare(io, gameState:MainState, newState: GameState){
+    io.emit(MAIN_STATE_SOCKET_KEY, newState);
+    setState(gameState, newState)
 }
 
 
-function handleNewEntity(userID: string, newEntity: EntityRequestData, gameState: MainStateType, io){
+function handleNewEntity(userID: string, newEntity: EntityRequestData, gameState: MainState, io){
     const {...entity} = newEntity;
     if (!isUserGM(userID)) return;
     appendEntity(entity, gameState, io);
 }
 
 
-function appendEntity(entityData: EntityRequestData, gameState: MainStateType, io){
+function appendEntity(entityData: EntityRequestData, gameState: MainState, io){
     const newEntity: EntityType = {
         id: uuid.v1.generate(),
         name: entityData.name,
@@ -50,24 +53,27 @@ function appendEntity(entityData: EntityRequestData, gameState: MainStateType, i
     }
 
     const stateKey = entityData.entityType === 'foe'? 'foes': 'allies';
-    gameState[stateKey].push(newEntity);
-    entityEditAfterWare(io, gameState)
+    const newState = {...gameState.current};
+    newState[stateKey].push(newEntity);
+    entityEditAfterWare(io, gameState, newState);
 }
 
-function handleEntityDeletion(userID: string, payload: DeleteEntityRequestPayload, gameState: MainStateType, io){
+function handleEntityDeletion(userID: string, payload: DeleteEntityRequestPayload, gameState: MainState, io){
     if (!isUserGM(userID)) return;
-    deleteEntity(payload.entityID, gameState);
-    entityEditAfterWare(io, gameState);
+    deleteEntity(io, payload.entityID, gameState);
   }
 
-function deleteEntity(entityID: string, gameState: MainStateType){
-    gameState.allies = gameState.allies.filter(entity => entity.id !== entityID);
-    gameState.foes = gameState.foes.filter(entity => entity.id !== entityID);
+function deleteEntity(io, entityID: string, gameState: MainState){
+    const newState = {...gameState.current};
+    newState.allies = newState.allies.filter(entity => entity.id !== entityID);
+    newState.foes = newState.foes.filter(entity => entity.id !== entityID);
+    entityEditAfterWare(io, gameState, newState);
 }
   
-  function handleEntityChangeState(userID: string, payload: ChangeEntityStateRequestPayload, gameState: MainStateType, io){
+  function handleEntityChangeState(userID: string, payload: ChangeEntityStateRequestPayload, gameState: MainState, io){
     if (!isUserGM(userID)) return;
-    const entityToChange = findEntityByID(payload.entityID, gameState);
+    const newState = {...gameState.current};
+    const entityToChange = findEntityByID(payload.entityID, newState);
     if (!entityToChange) return;
   
     if (payload.newState === 'visible-stats'){
@@ -78,41 +84,42 @@ function deleteEntity(entityID: string, gameState: MainStateType){
     if (payload.newState === 'dead' || payload.newState === 'unconscious') 
       entityToChange.healthPoints.currentValue = 0;
   
-    entityEditAfterWare(io, gameState);
+    entityEditAfterWare(io, gameState, newState);
   }
   
   
   
   
   
-  function handleEntityEdit(userID: string, payload: EditEntityRequestPayload, gameState: MainStateType, io){
+  function handleEntityEdit(userID: string, payload: EditEntityRequestPayload, gameState: MainState, io){
     if (!isUserGM(userID)) return;
     if (["HP", "MP", "PE"].includes(payload.barType)){
       handleBarChange(payload, io, gameState);
       return;
     }
-  
-    const entityToChange = findEntityByID(payload.entityID, gameState);
+    const newState = {...gameState.current};
+    const entityToChange = findEntityByID(payload.entityID, newState);
     if (!entityToChange) return;
   
     if (["conditions", "imgSource", "name"].includes(payload.barType)){
       entityToChange[payload.barType] = payload.value;
-      entityEditAfterWare(io, gameState);
+      entityEditAfterWare(io, gameState, newState);
       return;
     }
   
   
   }
   
-  function handleBarChange(payload: EditEntityRequestPayload, io, gameState){
+  function handleBarChange(payload: EditEntityRequestPayload, io, gameState: MainState){
     if (!isBarValueLegit(payload.value)) return;
-    const entityToChange = findEntityByID(payload.entityID, gameState);
+    const newState = {...gameState.current};
+    const entityToChange = findEntityByID(payload.entityID, newState);
     if (!entityToChange) return;
     const attributeName = barsRequestMap[payload.barType];
     const newBarValues = getNewBarValues(payload, entityToChange, attributeName);
     if (!newBarValues) return;
     entityToChange[attributeName] = newBarValues;
-    entityEditAfterWare(io, gameState);
+    entityEditAfterWare(io, gameState, newState);
   }
   
   function getNewBarValues(payload: EditEntityRequestPayload, entityToChange: EntityType, attributeName: BarAttributeName): CharacterBar | null{
@@ -153,51 +160,55 @@ function deleteEntity(entityID: string, gameState: MainStateType){
   }
   
   
-  function findEntityByID(id: string, gameState: MainStateType){
+  function findEntityByID(id: string, gameState: GameState){
     return gameState.allies.find(entity => entity.id === id) || gameState.foes.find(entity => entity.id === id);
   }
 
-  function handleTurnDone(userID: string, entityID: string, gameState: MainStateType, io){
+  function handleTurnDone(userID: string, entityID: string, gameState: MainState, io){
     if (!isUserGM(userID)) return;
-    const entityToChange = findEntityByID(entityID, gameState);
+    const newState = {...gameState.current};
+    const entityToChange = findEntityByID(entityID, newState);
     if (!entityToChange) return;
     entityToChange.turnDone =!entityToChange.turnDone;
-    entityEditAfterWare(io, gameState);
+    entityEditAfterWare(io, gameState, newState);
   }
   
-  function handleFullRest(userID: string, entityID: string, gameState: MainStateType, io){
+  function handleFullRest(userID: string, entityID: string, gameState: MainState, io){
     if (!isUserGM(userID)) return;
-    restoreEntity(entityID, gameState);
-    entityEditAfterWare(io, gameState);
+    restoreEntity(entityID, gameState, io);
   }
 
-  function restoreEntity(entityID: string, gameState: MainStateType){
-    const entityToChange = findEntityByID(entityID, gameState);
+  function restoreEntity(entityID: string, gameState: MainState, io){
+    const newState = {...gameState.current};
+    const entityToChange = findEntityByID(entityID, newState);
     if (!entityToChange) return;
     entityToChange.healthPoints.currentValue = entityToChange.healthPoints.maxValue;
     entityToChange.magicPoints.currentValue = entityToChange.magicPoints.maxValue;
     entityToChange.status = 'alive';
+    entityEditAfterWare(io, gameState, newState);
   }
 
-  function handleAffilationToogle(userID: string, entityID: string, gameState: MainStateType, io){
+  function handleAffilationToogle(userID: string, entityID: string, gameState: MainState, io){
     if (!isUserGM(userID)) return;
-    const foundAlly = gameState.allies.find(entity => entity.id === entityID);
-    const foundFoe = gameState.foes.find(entity => entity.id === entityID);
+    const newState = {...gameState.current};
+    const foundAlly = newState.allies.find(entity => entity.id === entityID);
+    const foundFoe = newState.foes.find(entity => entity.id === entityID);
     if (!foundAlly && !foundFoe) return;
     const newAffilation = foundAlly? 'foes' : 'allies';
     const copiedEntity: EntityType = foundAlly? {...foundAlly} : {...foundFoe} as EntityType;
-    deleteEntity(entityID, gameState);
-    gameState[newAffilation].push(copiedEntity);
-    entityEditAfterWare(io, gameState);
+    deleteEntity(io, entityID, gameState);
+    newState[newAffilation].push(copiedEntity);
+    entityEditAfterWare(io, gameState, newState);
   }
 
-  function handleDuplicateEntity(userID: string, entityID: string, gameState: MainStateType, io){
+  function handleDuplicateEntity(userID: string, entityID: string, gameState: MainState, io){
     if (!isUserGM(userID)) return;
     duplicateEntity(entityID, gameState, io);
   }
 
-  function duplicateEntity(entityID: string, gameState: MainStateType, io){
-    const entityToChange = findEntityByID(entityID, gameState);
+  function duplicateEntity(entityID: string, gameState: MainState, io){
+    const newState = {...gameState.current};
+    const entityToChange = findEntityByID(entityID, newState);
     if (!entityToChange) return;
     const dataToDuplicate = currentEntityDataToNewEntityRequestData(entityToChange);
     appendEntity(dataToDuplicate, gameState, io);
