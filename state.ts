@@ -1,4 +1,7 @@
 import { GameState } from "./types.ts";
+import { isUserGM, getUserID } from "./system.ts";
+
+const MAIN_STATE_SOCKET_KEY = 'entities-state';
 
 export function getInitiatedGameState(): MainState{
     const currentState = loadState();
@@ -7,6 +10,18 @@ export function getInitiatedGameState(): MainState{
         undo: new Stack<GameState>(10),
         redo: new Stack<GameState>(10),
     }
+}
+
+export function handleState(socket, io, onlineUsers: Map<string, string>, gameState: MainState){
+  socket.on('undo', () => {
+    const userID = getUserID(socket.id, onlineUsers);
+    if (!isUserGM(userID)) return gameState;
+    console.log(gameState.current)
+    const newState = redoState(gameState);
+    console.log(newState.current)
+    io.emit(MAIN_STATE_SOCKET_KEY, newState.current);
+    gameState = newState;
+  })
 }
 
 export function setState(currentState: MainState, newGameState: GameState): MainState{
@@ -50,7 +65,7 @@ function loadState(): GameState{
       return JSON.parse(new TextDecoder().decode(read));
     }
     catch{
-      return {allies: [], foes: [], clocks: []}
+      return {entities: [], clocks: []}
     }
     
   }

@@ -2,9 +2,10 @@ import { serve } from "https://deno.land/std@0.150.0/http/server.ts";
 import { Server } from "https://deno.land/x/socket_io@0.1.1/mod.ts";
 
 import {  handleLogin, handleReconnection } from "./system.ts";
-import { handleEntities } from "./entities.ts"; 
-import { getInitiatedGameState } from "./state.ts";
-
+import { getInitiatedGameState, handleState, MainState } from "./state.ts";
+import { GameState, AssetEditPayload } from "./types.ts";
+import { appendEntity, editEntity, deleteEntity } from "./entities.ts";
+import { setState } from "./state.ts";
 
 const MAIN_STATE_SOCKET_KEY = 'entities-state';
 
@@ -18,7 +19,7 @@ const io = new Server({
 });
 
 const onlineUsers = new Map<string, string>();
-const gameState = getInitiatedGameState(); 
+let gameState = getInitiatedGameState(); 
 
 io.on("connection", (socket) => {
   console.log(`socket ${socket.id} connected`);
@@ -29,14 +30,21 @@ io.on("connection", (socket) => {
   socket.on('reconnecting-attempt', (password) => {handleReconnection(socket, password, onlineUsers)})
   setInterval(() => socket.emit("hello", "world"), 5000);
 
-  handleEntities(socket, io, onlineUsers, gameState);
-
+  // handleEntities(socket, io, onlineUsers, gameState);
+  // handleState(socket, io, onlineUsers, gameState);
 
   socket.on('get-full-state', () => socket.emit(MAIN_STATE_SOCKET_KEY, gameState.current));
   socket.on('login-request', (password) => {handleLogin(socket, password, onlineUsers)});
 
   // socket.on('terminal-command', (payload) => {handleTerminalCommand(payload.userID, payload.command)})
 
+
+  //entities
+  socket.on('edit-asset', (payload: AssetEditPayload) => {
+    console.log(payload)
+    gameState = setState(gameState, handleAssetEdit(payload, gameState.current));
+    io.emit(MAIN_STATE_SOCKET_KEY, gameState.current);
+  })
 
   socket.on("disconnect", (reason) => {
     console.log(`socket ${socket.id} disconnected due to ${reason}`);
@@ -51,6 +59,26 @@ await serve(io.handler(), {
 });
 
 
+
+function handleAssetEdit(payload: AssetEditPayload, currentState: GameState): GameState{
+  if (!payload.order || !payload.assetType) return currentState;
+  if (payload.assetType === 'clock') return handleClock(payload, currentState);
+  if (payload.assetType === 'entity') return handleEntity(payload, currentState);
+  return currentState;
+}
+
+function handleClock(payload: AssetEditPayload, currentState: GameState): GameState{
+  return currentState;
+}
+
+function handleEntity(payload: AssetEditPayload, currentState: GameState): GameState{
+  switch(payload.order){
+    case 'add': return appendEntity(currentState, payload);
+    case 'delete': return deleteEntity(currentState, payload.id);
+    case 'update': return editEntity(currentState, payload.id, payload.key, payload.value, payload.barType);
+  }
+  return currentState;
+}
 
 // function handleTerminalCommand(userID: string, command: string){
 //   if (!isUserGM(userID)) return;

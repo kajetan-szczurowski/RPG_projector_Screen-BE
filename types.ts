@@ -1,6 +1,6 @@
 export type EntityType = {
-    id: string;
-    name: string;
+    id: string,
+    name: string,
     conditions: string,
     healthPoints: CharacterBar,
     magicPoints: CharacterBar,
@@ -8,6 +8,7 @@ export type EntityType = {
     imgSource: string,
     status: CharacterStatus,
     statsVisibleByPlayers: boolean,
+    affiliation: 'ally' | 'foe',
     turnDone?: boolean
 }
 
@@ -24,14 +25,6 @@ export type MainStateType = {
   foes: EntityType[],
 }
 
-export type EntityRequestData = {
-    name: string;
-    hp: string;
-    mp: string;
-    pe: string;
-    entityType: 'ally' | 'foe';
-    imgSource: string;
-}
 
 export type EditEntityRequestPayload = {
   barType: "MP" | "HP" | "PE" | "conditions" | "imgSource" | "name"
@@ -60,7 +53,24 @@ export type Clock = {
 
 export type GameState = {
   clocks: Clock[],
-  allies: EntityType[]
-  foes: EntityType[]
+  entities: EntityType[]
 }
 
+export type AssetEditPayload = {
+  order: 'add' | 'delete' | 'update',
+  assetType: 'entity' | 'clock',
+  id: string,
+  key: string,
+  value: string,
+  barType?: "MP" | "HP" | "PE",
+  newEntityData? : NewEntityRequestData
+}
+
+type NewEntityRequestData = {
+  name: string;
+  hp: string;
+  mp: string;
+  pe: string;
+  imgSource: string;
+  affilation: 'ally' | 'foe'
+}
